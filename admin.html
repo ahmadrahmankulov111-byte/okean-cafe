@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Okean — заказы</title>
+<style>
+:root{--bk:#15120e;--bk2:#211c15;--gold:#c9a24b;--cr:#f6efe0;--mut:#a79d89}
+*{box-sizing:border-box}body{margin:0;background:var(--bk);color:var(--cr);font:16px/1.4 system-ui,sans-serif;padding:16px;max-width:760px;margin:auto}
+h1{font:700 28px Georgia,serif;color:var(--gold);margin:0 0 10px}
+input{padding:12px;background:var(--bk2);color:var(--cr);border:1px solid #4a3d2a;border-radius:8px;font:16px system-ui;width:100%;margin:6px 0}
+button{padding:11px 16px;border:0;border-radius:8px;background:var(--gold);color:#15120e;font:700 15px system-ui}
+.o{background:var(--bk2);border:1px solid #3a3022;border-radius:12px;padding:14px;margin:12px 0}
+.o.new{border-color:var(--gold);box-shadow:0 0 0 1px var(--gold)}
+.top{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}.tag{color:var(--gold);font-weight:700}
+.mut{color:var(--mut)}ul{margin:8px 0;padding-left:20px}.bar{display:flex;justify-content:space-between;align-items:center;margin:8px 0}
+a{color:var(--gold)}label{color:var(--mut)}:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+</style></head><body>
+<div id="boot" style="padding:16px;margin:12px;border:1px solid #ff8a7a;border-radius:8px;color:#ff8a7a;font:16px system-ui">Страница не запустилась. Нажмите F12, откройте Console и пришлите красный текст.</div>
+<div id="login"><h1>Okean — вход</h1><input id="code" type="password" placeholder="Код администратора"><div id="e" style="color:#ff8a7a;min-height:20px"></div><button id="enter">Войти</button></div>
+<div id="app" style="display:none"><div class="bar"><h1>Заказы</h1><label><input type="checkbox" id="showdone" style="width:auto"> Показать выданные</label></div><div id="list"></div></div>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+document.getElementById("boot").style.display="none";
+window.addEventListener("error",function(e){var b=document.getElementById("boot");b.style.display="block";b.textContent="Ошибка в программе: "+e.message;});
+// Те же данные Firebase, что и в index.html. Смените код администратора!
+const CFG={apiKey:"YOUR_API_KEY",authDomain:"okean-cafe.firebaseapp.com",projectId:"okean-cafe",appId:"YOUR_APP_ID"};
+const ADMIN_CODE="okean2026";
+const DEMO=CFG.apiKey.indexOf("YOUR_")===0;
+let db=null,orders=[],seen=null,audio=null;
+if(!DEMO){try{firebase.initializeApp(CFG);db=firebase.firestore();}catch(e){console.error(e);}}
+const $=id=>document.getElementById(id);
+const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const ST={new:"Новый",cook:"Готовится",ready:"Готов",done:"Выдан"},NEXT={new:["cook","Принять"],cook:["ready","Готово"],ready:["done","Выдан клиенту"]};
+function readDemo(){return JSON.parse(localStorage.getItem("okeanOrders")||"[]");}
+function listen(){
+  if(DEMO||!db){const f=()=>{orders=readDemo();draw();};f();window.addEventListener("storage",f);return;}
+  db.collection("orders").orderBy("createdAt","desc").limit(100).onSnapshot(s=>{orders=s.docs.map(d=>Object.assign({},d.data(),{id:d.id}));draw();},e=>{console.error(e);$("list").innerHTML='<p class="mut">Нет доступа к базе. Проверьте правила Firestore.</p>';});
+}
+function setStatus(id,st){
+  if(DEMO||!db){const a=readDemo();a.forEach(o=>{if(o.id===id)o.status=st;});localStorage.setItem("okeanOrders",JSON.stringify(a));orders=a;draw();return Promise.resolve();}
+  return db.collection("orders").doc(id).update({status:st});
+}
+function beep(){try{audio=audio||new (window.AudioContext||window.webkitAudioContext)();const o=audio.createOscillator();o.connect(audio.destination);o.frequency.value=880;o.start();o.stop(audio.currentTime+0.4);}catch(e){}}
+function draw(){
+  const ids=orders.filter(o=>o.status==="new").map(o=>o.id);
+  if(seen!==null&&ids.some(i=>seen.indexOf(i)<0))beep();
+  seen=ids;
+  const show=$("showdone").checked,l=orders.filter(o=>show||o.status!=="done");
+  $("list").innerHTML=l.length?l.map(o=>{
+    const n=NEXT[o.status],t=new Date(o.createdAt).toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit"});
+    return '<div class="o '+esc(o.status)+'"><div class="top"><b>'+esc(o.name)+' — '+esc(o.type)+'</b><span class="tag">'+esc(ST[o.status]||o.status)+'</span></div>'+
+    '<div class="mut">'+t+', <a href="tel:'+esc(String(o.phone).replace(/[^\d+]/g,""))+'">'+esc(o.phone)+'</a>'+(o.address?', '+esc(o.address):"")+'</div>'+
+    '<ul>'+(o.items||[]).map(i=>'<li>'+esc(i.name)+' × '+esc(i.qty)+'</li>').join("")+'</ul>'+
+    (o.comment?'<div class="mut">Комментарий: '+esc(o.comment)+'</div>':"")+
+    '<div class="bar"><b>'+Number(o.total).toLocaleString("ru-RU")+' сом</b>'+(n?'<button data-id="'+esc(o.id)+'" data-s="'+n[0]+'">'+n[1]+'</button>':"")+'</div></div>';
+  }).join(""):'<p class="mut">Новых заказов пока нет. Они появятся здесь сами.</p>';
+}
+$("list").addEventListener("click",e=>{const b=e.target.closest("button");if(b)setStatus(b.dataset.id,b.dataset.s).catch(err=>{console.error(err);alert("Не удалось изменить статус");});});
+$("showdone").onchange=draw;
+function enter(){
+  if($("code").value!==ADMIN_CODE){$("e").textContent="Неверный код";return;}
+  $("login").style.display="none";$("app").style.display="block";beep();listen();
+}
+$("enter").onclick=enter;$("code").addEventListener("keydown",e=>{if(e.key==="Enter")enter();});
+</script></body></html>
+ 
